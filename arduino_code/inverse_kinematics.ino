@@ -1,34 +1,44 @@
-#include <AccelStepper.h>
-#include <MultiStepper.h>
-#include <math.h>  // include cmath for trigonometric functions
+// IMPORT PACKAGES
+#include <AccelStepper.h> // for stepper motor control
+#include <MultiStepper.h> // for multiple stepper motor control
+#include <math.h>  // for trigonometric functions
 
 // Define step and direction pins used by the RAMPS shield for X-axis
-#define Y_STEP_PIN 54 // X_STEP_PIN on RAMPS 1.4
-#define Y_DIR_PIN 55  // X_DIR_PIN on RAMPS 1.4
-#define Y_ENABLE_PIN 38 // X_ENABLE_PIN on RAMPS 1.4
+#define X_STEP_PIN 54 // X_STEP_PIN on RAMPS 1.4
+#define X_DIR_PIN 55  // X_DIR_PIN on RAMPS 1.4
+#define X_ENABLE_PIN 38 // X_ENABLE_PIN on RAMPS 1.4
 
 // Define step and direction pins used by the RAMPS shield for Y-axis
-#define X_STEP_PIN 60 // Y_STEP_PIN on RAMPS 1.4
-#define X_DIR_PIN 61  // Y_DIR_PIN on RAMPS 1.4
-#define X_ENABLE_PIN 56 // Y_ENABLE_PIN on RAMPS 1.4
+#define Y_STEP_PIN 60 // Y_STEP_PIN on RAMPS 1.4
+#define Y_DIR_PIN 61  // Y_DIR_PIN on RAMPS 1.4
+#define Y_ENABLE_PIN 56 // Y_ENABLE_PIN on RAMPS 1.4
 
 // Define the switch pin
-#define home_switch 3 // Pin 3 connected to Click Switch
+#define HOME_SWITCH 3 // Pin 3 connected to Click Switch
+
+// Define the pin connected to the actuator PIN IS D9
+#define LINEAR_ACTUATOR_PIN 9
+
+// Define the pin connected to the solenoid PIN IS D10
+#define MAGNET_SOLENOID_PIN 10
 
 int current_steps_right;
 int current_steps_left;
 
 // Define fixed parameters
-const double l1 = 22; // Length of the first arm
-const double l2 = 27.3; // Length of the second arm
 const int steps_per_revolution = 3200; //steps per revolution
-double d = 12;
 
 // Define the variables
 double x = 0; // X-coordinate
 double y = 0; // Y-coordinate
 double q1; // Angle of the first arm
 double q2; // Angle of the second arm
+
+struct Point {
+    double x;
+    double y;
+};
+
 
 // Define the stepper motor connections
 AccelStepper stepper1(AccelStepper::DRIVER, X_STEP_PIN, X_DIR_PIN);
@@ -37,13 +47,16 @@ AccelStepper stepper2(AccelStepper::DRIVER, Y_STEP_PIN, Y_DIR_PIN);
 //Instantiate MultiStepper
 MultiStepper steppers;
 
+// BOOLEAN VARIABLES
 bool motorsEnabled = false; // Flag to enable/disable the motors
 bool start_loop = false;  // Flag to indicate if the loop should start
+bool actuator_high = false; // Flag to indicate if the actuator is high
+bool magnet_active = false; // Flag to indicate if the magnet is on
 
 // Function to set the current positions to zero when the switch is pressed
 void setManualPosition() {
   // Read the state of the switch
-  int switchState = digitalRead(home_switch);
+  int switchState = digitalRead(HOME_SWITCH);
   
   // Check if the switch is clicked (pressed)
   if (switchState == LOW) {
@@ -51,13 +64,19 @@ void setManualPosition() {
     stepper1.setCurrentPosition(800);
     stepper2.setCurrentPosition(800);
 
-    //current_steps_left = 800;
-    //current_steps_right = 800;
+    Serial.print("\n");
+
+   
 
     // Set the flag to start the loop
     start_loop = true;
+
+    enableMotors();
+
+    delay(1000);
+    moveTo(60,300);
+    
   }
-  enableMotors();
 }
 
 
@@ -95,22 +114,12 @@ double calculateAngleLeft(double x, double y) {
 
 // Function to calculate the inverse kinematics
 void moveTo(double new_x, float new_y){
-    double diff_x = new_x - d;
-
-    float B_left[2] = {new_x, new_y};
-    float B_right[2] = {diff_x, new_y};
-    
-    float angleLeft;
-    float angleRight;
-    float C_left[2];
-    float C_right[2];
 
     float angle_left_new;
     float angle_right_new;
 
     angle_left_new = calculateAngleLeft(new_x, new_y);
     angle_right_new = calculateAngleRight(new_x - OFFSET, new_y);
-
 
     // Print the calculated angles
     Serial.print("Angle Left");
@@ -125,8 +134,6 @@ void moveTo(double new_x, float new_y){
     Serial.print("\n");
     Serial.print("\n");
 
-
-
     // calculate steps to move
     int left_steps = steps_per_revolution * (angle_left_new / 360);
     int right_steps = steps_per_revolution * (angle_right_new / 360);
@@ -136,23 +143,101 @@ void moveTo(double new_x, float new_y){
     Serial.print(left_steps);
     Serial.print("\n");
     Serial.print("\n");
-
     Serial.print("STEPS Right");
     Serial.print("\n");
     Serial.print(right_steps);
     Serial.print("\n");
     Serial.print("\n");
 
+
     // move engines
     long positions[2]; // Array of desired stepper positions
-    
     positions[0] = left_steps;
     positions[1] = right_steps;
-    
     steppers.moveTo(positions);
     steppers.runSpeedToPosition(); // Blocks until all are in position
-    //delay(1000);
+
+    // Update the current position
+    x = new_x;
+    y = new_y;
 }
+
+// Function to calculate the inverse kinematics
+void moveToNew(Point* positions, int count) {
+  for (int i = 0; i < count; i++) {
+      Point position = positions[i];
+      float angle_left_new;
+      float angle_right_new;
+
+      angle_left_new = calculateAngleLeft(position.x, position.y);
+      angle_right_new = calculateAngleRight(position.x - OFFSET, position.y);
+
+      // Print the calculated angles
+      Serial.print("Angle Left");
+      Serial.print("\n");
+      Serial.print(angle_left_new);
+      Serial.print("\n");
+      Serial.print("\n");
+
+      Serial.print("Angle Right");
+      Serial.print("\n");
+      Serial.print(angle_right_new);
+      Serial.print("\n");
+      Serial.print("\n");
+
+      // calculate steps to move
+      int left_steps = steps_per_revolution * (angle_left_new / 360);
+      int right_steps = steps_per_revolution * (angle_right_new / 360);
+
+      Serial.print("STEPS Left");
+      Serial.print("\n");
+      Serial.print(left_steps);
+      Serial.print("\n");
+      Serial.print("\n");
+      Serial.print("STEPS Right");
+      Serial.print("\n");
+      Serial.print(right_steps);
+      Serial.print("\n");
+      Serial.print("\n");
+
+
+      // move engines
+      long positions[2]; // Array of desired stepper positions
+      positions[0] = left_steps;
+      positions[1] = right_steps;
+      steppers.moveTo(positions);
+      steppers.runSpeedToPosition(); // Blocks until all are in position
+
+      // Update the current position
+      // Update current position
+      x = position.x;
+      y = position.y;
+    }
+}
+
+void moveIP(double targetX, double targetY) {
+    const int MAX_POINTS = 100; // Adjust this based on your needs and memory constraints
+    Point positions[MAX_POINTS];
+    int numPositions = 0;
+
+    double stepLength = 150; // Step length in millimeters
+    double distance = sqrt(pow(targetX - x, 2) + pow(targetY - y, 2));
+    int numSteps = ceil(distance / stepLength);
+    double stepX = (targetX - x) / numSteps;
+    double stepY = (targetY - y) / numSteps;
+
+    for (int step = 0; step <= numSteps; step++) {
+        if (numPositions < MAX_POINTS) {
+            positions[numPositions].x = x + stepX * step;
+            positions[numPositions].y = y + stepY * step;
+            numPositions++;
+        }
+    }
+
+    moveToNew(positions, numPositions);
+}
+
+
 
 // Function to enable/disable the motors
 void enableMotors() {
@@ -174,37 +259,11 @@ void disableMotors() {
   motorsEnabled = false;
 }
 
-
-void setup() {
-  Serial.begin(9600);
-
-  // Set the maximum speed and acceleration for X-axis motor
-  stepper1.setMaxSpeed(1000); // steps per second
-  stepper1.setAcceleration(250); // steps per second per second
-
-  // Set the maximum speed and acceleration for Y-axis motor
-  stepper2.setMaxSpeed(1000); // steps per second
-  stepper2.setAcceleration(250); // steps per second per second
-
-  // Enable the stepper drivers
-  pinMode(X_ENABLE_PIN, OUTPUT);
-  //digitalWrite(X_ENABLE_PIN, LOW); // Set enable LOW to enable X-axis stepper driver --> enable/disable function
-  pinMode(Y_ENABLE_PIN, OUTPUT);
-  //digitalWrite(Y_ENABLE_PIN, LOW); // Set enable LOW to enable Y-axis stepper driver -->  enable/disable function
-  
-  //disableMotors();
-  // Add to MultiStepper
-  steppers.addStepper(stepper1);
-  steppers.addStepper(stepper2);
-
-  pinMode(home_switch, INPUT_PULLUP); // Set home switch
-}
-
 void draw_rectangle() {  
-  moveTo(0,400);
-  moveTo(120,400);
-  moveTo(120,300);
-  moveTo(0,300);
+  moveTo(-200,200);
+  moveTo(300,200);
+  //moveTo(200,200);
+  //moveTo(0,200);
 
 }
 
@@ -237,6 +296,121 @@ void draw_line_horizontal() {
     }
 }
 
+//INTERPOLATION TEST
+void draw_line_test() {
+
+  int steps = 10;
+  for (int step = 0; step <= steps; step++) {
+      moveIP(0,150);
+      moveIP(200,300);
+    }
+}
+
+// Linear Actuator Functions
+void actuator_up() { 
+    Serial.print("Actuator up");
+    digitalWrite(LINEAR_ACTUATOR_PIN, LOW);
+}
+
+void actuator_down() {
+    Serial.print("Actuator down");
+    digitalWrite(LINEAR_ACTUATOR_PIN, HIGH);    
+}
+
+// Magnet Functions
+void magnet_on() { 
+    if (magnet_active == false) {
+        digitalWrite(MAGNET_SOLENOID_PIN, HIGH);
+        magnet_active = true;
+    }
+}
+
+void magnet_off() {
+    if (magnet_active == true) {
+        digitalWrite(MAGNET_SOLENOID_PIN, LOW);
+        magnet_active = false;
+    }
+}
+
+// Pick up the object
+void pick_up() {
+    // Move the arm down
+    actuator_down();
+    // Turn on the magnet
+    magnet_on();
+    //delay
+    delay(1000);
+    // Move the arm up
+    actuator_up();
+}
+
+// Drop the object
+void place() {
+    // Move the arm down
+    actuator_down();
+    //delay
+    delay(1000);
+    // Turn off the magnet
+    magnet_off();
+    // Move the arm up
+    actuator_up();
+}
+
+
+void demo() {
+    delay(1000);
+    //pick and place
+    moveIP(60,200);
+    pick_up();
+    moveIP(-250,200);
+    place();
+    //pick and place
+    moveIP(200,100);
+    pick_up();
+    moveIP(-250,200);
+    place();
+    //pick and place
+    moveIP(200,400);
+    pick_up();
+    moveIP(-250,200);
+    place();
+    //pick and place
+    moveIP(0,350);
+    pick_up();
+    moveIP(-250,200);
+    place();
+    //pick and place
+    moveIP(-75,100);
+    pick_up();
+    moveIP(-250,200);
+    place();
+    moveIP(60,300);
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  // Set the maximum speed and acceleration for X-axis motor
+  stepper1.setMaxSpeed(350); // steps per second
+  stepper1.setAcceleration(50); // steps per second per second
+
+  // Set the maximum speed and acceleration for Y-axis motor
+  stepper2.setMaxSpeed(350); // steps per second
+  stepper2.setAcceleration(50); // steps per second per second
+
+  // Enable the stepper drivers
+  pinMode(X_ENABLE_PIN, OUTPUT);
+  pinMode(Y_ENABLE_PIN, OUTPUT);
+  
+  //disableMotors();
+  // Add to MultiStepper
+  steppers.addStepper(stepper1);
+  steppers.addStepper(stepper2);
+
+  pinMode(HOME_SWITCH, INPUT_PULLUP); // Set home switch
+  pinMode(LINEAR_ACTUATOR_PIN, OUTPUT); // Set Linear Actuator Pin
+  pinMode(MAGNET_SOLENOID_PIN, OUTPUT); // Set Linear Actuator Pin
+}
 
 
 void loop() {
@@ -245,7 +419,7 @@ void loop() {
     if (!start_loop) {
       disableMotors();
       setManualPosition();
-    }
+    } 
 
     // Check if data is available to read from the serial port
     if (Serial.available() > 0) {
@@ -260,45 +434,63 @@ void loop() {
             String yString = inputString.substring(commaIndex + 1);
 
             // Convert the substrings to float
-            float xPosition = xString.toFloat();
-            float yPosition = yString.toFloat();
+            float xPosition = xString.toDouble();
+            float yPosition = yString.toDouble();
 
             // Move the robot arm to the specified position
-            moveTo(xPosition, yPosition);
+            moveIP(xPosition, yPosition);
 
             // Optionally, print out the position for confirmation
             Serial.print("Moving to position X: ");
             Serial.print(xPosition);
             Serial.print(", Y: ");
             Serial.println(yPosition);
-        } else {
+        } 
 
-            if (inputString == "s") {
-              long positions[2];
-              positions[0] = -400;
-              positions[1] = 400;
-              steppers.moveTo(positions);
-
-              steppers.runSpeedToPosition(); // Blocks until all are in position
+        else if (inputString == "rectangle") {
+          Serial.print("Perform rectangle");
+          for (int i = 0; i <= 10; i = i + 1) {
+            draw_rectangle();
             }
+        } 
 
-            if (inputString == "rectangle") {
-              for (int i = 0; i <= 10; i = i + 1) {
-                  draw_rectangle();
-                  } 
-            } 
-            
-            if (inputString == "line") {
-              for (int i = 0; i <= 10; i = i + 1) {
-                draw_line_horizontal();
-                }
-            }
-            
-            else {
-                // Invalid input format
-                Serial.println("Invalid input. Please enter in format: X,Y");
-            } 
-
+        else if (inputString == "line") {
+          Serial.print("Perform line");
+          draw_line_test();
         }
+
+        else if (inputString == "actuator_up") {
+          actuator_up();
+        }
+
+        else if (inputString == "actuator_down") {
+              Serial.print("Actuator down");
+              actuator_down();
+            }
+
+        else if (inputString == "pick") {
+              Serial.print("\n");
+              Serial.print("Pick up");
+              pick_up();
+            }
+
+        else if (inputString == "place") {
+              Serial.print("\n");
+              Serial.print("Place");
+              place();
+            }
+        
+        else if (inputString == "dem0") {
+              Serial.print("\n");
+              Serial.print("Demo");
+              demo();
+            }
+            
+        else {
+              // Invalid input format
+              Serial.print("\n");
+              Serial.println("Invalid input. Please enter in format: X,Y");
+            } 
+
     }
 }
