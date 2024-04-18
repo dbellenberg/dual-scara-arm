@@ -1,6 +1,8 @@
 # dual-scara-arm
 Dive into our Dual SCARA Robot Arm project: a cutting-edge, open-source platform for advanced kinematics in pick-and-place robotics. Ideal for hobbyists and educators, it offers precision and adaptability in automated tasks. Join and innovate in the realm of robotic technology!
 
+![picking animation](animations/pick.gif)
+
 [![Watch the video](https://img.youtube.com/vi/yPa03tPylvE/maxresdefault.jpg)](https://youtu.be/yPa03tPylvE)
 
 
@@ -8,6 +10,5 @@ Dive into our Dual SCARA Robot Arm project: a cutting-edge, open-source platform
 
 
 
-![thrustbearing animation](animations/pick.gif)
 
 
